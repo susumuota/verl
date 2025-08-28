@@ -46,5 +46,21 @@ python3 -c "import transformers; transformers.pipeline('text-generation', model=
 ```shell
 cat <<EOF > ~/sif/env.txt
 PYTHONUNBUFFERED=1
-CUDA_VISIBLE_DEVICES="0,1,2,3,4,5,6,7"
 EOF
+
+exit  # exit from the container
+```
+
+## Run PPO training on ABCI 3.0
+
+```shell
+cd verl
+qsub -P group hpc_scripts/ppo_abci.sh
+```
+
+## Run PPO training on Slurm
+
+```shell
+cd verl
+sbatch hpc_scripts/ppo_slurm.sh
+```

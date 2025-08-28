@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=verl-ray-on-slurm
+#SBATCH --job-name=verl-ray-on-hpc
 #SBATCH --nodes=2
 #SBATCH --ntasks-per-node=1
 #SBATCH --mem=1200G
@@ -37,6 +37,11 @@ apptainer_image_path=${HOME}/sif/verl-app-verl0.5-transformers4.55.4-vllm0.10.0-
 apptainer_env_file=${HOME}/sif/env.txt
 # replace these information with your own
 
+# define HPC_* instead of SLURM_*
+HPC_NNODES=$SLURM_NNODES
+HPC_GPUS_ON_NODE=$SLURM_GPUS_PER_NODE
+HPC_CPUS_ON_NODE=$SLURM_CPUS_PER_TASK
+
 # Getting the node names
 head_node=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
 worker_nodes=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | tail -n +2)
@@ -66,31 +71,33 @@ printenv
 
 echo "Starting HEAD at $head_node"
 srun --overlap --nodes=1 --ntasks=1 -w "$head_node" \
-    $apptainer_command exec --env-file $apptainer_env_file --nv --bind $verl_workdir $apptainer_image_path \
+    $apptainer_command exec --env-file "$apptainer_env_file" --nv --bind "$verl_workdir" "$apptainer_image_path" \
         ray start --head --node-ip-address="$head_node_ip" --port=$port \
-        --num-cpus "${SLURM_CPUS_ON_NODE}" --num-gpus "${SLURM_GPUS_ON_NODE}" --block &
+        --num-cpus "${HPC_CPUS_ON_NODE}" --num-gpus "${HPC_GPUS_ON_NODE}" --block &
 # optional, though may be useful in certain versions of Ray < 1.0.
-sleep 10
+sleep 20
 
 for worker_node in $worker_nodes; do
     echo "Starting WORKER at $worker_node"
     srun --overlap --nodes=1 --ntasks=1 -w "$worker_node" \
-        $apptainer_command exec --env-file $apptainer_env_file --nv --bind $verl_workdir $apptainer_image_path \
-            ray start --address "$ip_head" --num-cpus "${SLURM_CPUS_ON_NODE}" --num-gpus "${SLURM_GPUS_ON_NODE}" --block &
-    sleep 5
+        $apptainer_command exec --env-file "$apptainer_env_file" --nv --bind "$verl_workdir" "$apptainer_image_path" \
+            ray start --address "$ip_head" --num-cpus "${HPC_CPUS_ON_NODE}" --num-gpus "${HPC_GPUS_ON_NODE}" --block &
+    sleep 10
 done
+
+sleep 10
 
 echo "Confirming status at $head_node"
 srun --overlap --nodes=1 --ntasks=1 -w "$head_node" \
-    $apptainer_command exec --env-file $apptainer_env_file --nv --bind $verl_workdir $apptainer_image_path \
+    $apptainer_command exec --env-file "$apptainer_env_file" --nv --bind "$verl_workdir" "$apptainer_image_path" \
         ray status --address "$ip_head"
 
 srun --overlap --nodes=1 --ntasks=1 -w "$head_node" \
-    $apptainer_command exec --env-file $apptainer_env_file --nv --bind $verl_workdir $apptainer_image_path \
+    $apptainer_command exec --env-file "$apptainer_env_file" --nv --bind "$verl_workdir" "$apptainer_image_path" \
     python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=gae \
-    data.train_files=$train_files \
-    data.val_files=$val_files \
+    data.train_files="$train_files" \
+    data.val_files="$val_files" \
     data.train_batch_size=256 \
     data.max_prompt_length=512 \
     data.max_response_length=256 \
@@ -111,8 +118,8 @@ srun --overlap --nodes=1 --ntasks=1 -w "$head_node" \
     trainer.project_name=verl_ppo \
     trainer.experiment_name=Qwen2.5-0.5B-Instruct-PPO-GSM8K \
     trainer.val_before_train=False \
-    trainer.n_gpus_per_node="${SLURM_GPUS_ON_NODE}" \
-    trainer.nnodes="${SLURM_NNODES}" \
+    trainer.n_gpus_per_node="${HPC_GPUS_ON_NODE}" \
+    trainer.nnodes="${HPC_NNODES}" \
     trainer.save_freq=10 \
     trainer.test_freq=10 \
-    trainer.total_epochs=2 2>&1 | tee verl_demo_slurm.log
+    trainer.total_epochs=2 2>&1 | tee verl_demo_hpc.log
