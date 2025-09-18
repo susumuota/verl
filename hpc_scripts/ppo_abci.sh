@@ -70,7 +70,7 @@ echo "Starting HEAD at $head_node"
 pdsh -w "$head_node" \
     $apptainer_command exec --env-file "$apptainer_env_file" --nv --bind "$verl_workdir" "$apptainer_image_path" \
         ray start --head --node-ip-address="$head_node_ip" --port=$port \
-        --num-cpus "${HPC_CPUS_ON_NODE}" --num-gpus "${HPC_GPUS_ON_NODE}" --block &
+            --num-cpus "${HPC_CPUS_ON_NODE}" --num-gpus "${HPC_GPUS_ON_NODE}" --block &
 # optional, though may be useful in certain versions of Ray < 1.0.
 sleep 20
 

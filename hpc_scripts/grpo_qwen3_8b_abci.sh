@@ -1,14 +1,11 @@
 #!/bin/bash
-#SBATCH --job-name=grpo_qwen3_8b_gsm8k
-#SBATCH --nodes=2
-#SBATCH --ntasks-per-node=1
-#SBATCH --mem=1200G
-#SBATCH --partition=your-partition
-#SBATCH --time=24:00:00
-#SBATCH --gpus-per-node=8
-#SBATCH --cpus-per-task=240
-#SBATCH --output=logs/%x-%j.out
-#SBATCH --error=logs/%x-%j.err
+#PBS -N grpo_qwen3_8b_gsm8k
+#PBS -q rt_HF
+#PBS -l select=2
+#PBS -l walltime=24:00:00
+#PBS -k oe
+#PBS -j oe
+#PBS -v USE_SSH=1
 
 # this file is copied and modified from examples/slurm/ray_on_slurm.slurm
 # run the following command to see the difference:
@@ -19,14 +16,14 @@
 # run the following command to convert the image:
 #   singularity pull verl-app-verl0.5-transformers4.55.4-vllm0.10.0-mcore0.13.0-te2.2.sif docker://verlai/verl:app-verl0.5-transformers4.55.4-vllm0.10.0-mcore0.13.0-te2.2
 
-# load necessary modules
-module purge
-module load cuda/12.8
+cd "${PBS_O_WORKDIR}" || exit
 
-# to avoid MemoryError
-ulimit -l unlimited
-ulimit -m unlimited
-ulimit -v unlimited
+# load necessary modules
+# shellcheck source=/dev/null
+source /etc/profile.d/modules.sh
+module purge
+module load singularitypro/4.1.7
+module load cuda/12.8/12.8.1
 
 # replace these information with your own
 verl_workdir=${HOME}/verl
@@ -40,14 +37,14 @@ experiment_name=qwen3_8b_gsm8k
 # replace these information with your own
 
 # define HPC_* instead of SLURM_*
-HPC_NNODES=$SLURM_NNODES
-HPC_GPUS_ON_NODE=$SLURM_GPUS_PER_NODE
-HPC_CPUS_ON_NODE=$SLURM_CPUS_PER_TASK
+HPC_NNODES=$(cat "$PBS_NODEFILE" | uniq | wc -l)
+HPC_GPUS_ON_NODE=$(nvidia-smi -L | grep -c "^GPU")
+HPC_CPUS_ON_NODE=$(nproc)
 
 # Getting the node names
-head_node=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
-worker_nodes=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | tail -n +2)
-head_ip=$(srun --overlap --nodes=1 --ntasks=1 -w "$head_node" hostname --ip-address)
+head_node=$(cat "$PBS_NODEFILE" | uniq | head -n 1)
+worker_nodes=$(cat "$PBS_NODEFILE" | uniq | tail -n +2)
+head_ip=$(pdsh -N -w "$head_node" hostname --ip-address)
 head_port=6379
 head_ip_port="${head_ip}:${head_port}"
 echo "IP Head: $head_ip_port"
@@ -56,7 +53,7 @@ echo "IP Head: $head_ip_port"
 printenv
 
 echo "Starting HEAD at $head_node"
-srun --overlap --nodes=1 --ntasks=1 -w "$head_node" \
+pdsh -w "$head_node" \
     singularity exec --env-file "$env_file" --nv --bind "$verl_workdir" "$sif_file" \
         ray start --head --node-ip-address="$head_ip" --port="$head_port" \
             --num-cpus "${HPC_CPUS_ON_NODE}" --num-gpus "${HPC_GPUS_ON_NODE}" --block &
@@ -65,7 +62,7 @@ sleep 20
 
 for worker_node in $worker_nodes; do
     echo "Starting WORKER at $worker_node"
-    srun --overlap --nodes=1 --ntasks=1 -w "$worker_node" \
+    pdsh -w "$worker_node" \
         singularity exec --env-file "$env_file" --nv --bind "$verl_workdir" "$sif_file" \
             ray start --address "$head_ip_port" --num-cpus "${HPC_CPUS_ON_NODE}" --num-gpus "${HPC_GPUS_ON_NODE}" --block &
     sleep 10
@@ -74,11 +71,11 @@ done
 sleep 10
 
 echo "Confirming status at $head_node"
-srun --overlap --nodes=1 --ntasks=1 -w "$head_node" \
+pdsh -w "$head_node" \
     singularity exec --env-file "$env_file" --nv --bind "$verl_workdir" "$sif_file" \
         ray status --address "$head_ip_port"
 
-srun --overlap --nodes=1 --ntasks=1 -w "$head_node" \
+pdsh -w "$head_node" \
     singularity exec --env-file "$env_file" --nv --bind "$verl_workdir" "$sif_file" \
     python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \

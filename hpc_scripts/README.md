@@ -6,20 +6,29 @@
 
 ## Pre-requisites
 
-- Convert verl Docker image to Singularity image
+- Follow the instructions to install verl
+  - https://verl.readthedocs.io/en/latest/start/install.html#install-from-docker-image
+- Find the latest verl Docker image tag from:
+  - https://hub.docker.com/r/verlai/verl/tags
+- Convert verl Docker image to Singularity image.
 
 ```shell
+cd
 mkdir -p sif
+cd sif
 
-singularity pull verl-app-verl0.5-transformers4.55.4-vllm0.10.0-mcore0.13.0-te2.2.sif docker://verlai/verl:app-verl0.5-transformers4.55.4-vllm0.10.0-mcore0.13.0-te2.2
+singularity pull verl-app-verl0.5-transformers4.55.4-vllm0.10.0-mcore0.13.0-te2.2.sif \
+    docker://verlai/verl:app-verl0.5-transformers4.55.4-vllm0.10.0-mcore0.13.0-te2.2
 
 cd ..
 ```
 
 - Install verl
+  - https://verl.readthedocs.io/en/latest/start/install.html#installation-from-docker
 
 ```shell
 singularity run sif/verl-app-verl0.5-transformers4.55.4-vllm0.10.0-mcore0.13.0-te2.2.sif
+# prompt should be changed to `Singularity> `
 
 git clone https://github.com/susumuota/verl.git
 cd verl
@@ -33,12 +42,10 @@ hf auth login
 wandb login
 ```
 
-- Download dataset and model for testing
+- Download dataset and create parquet files
 
 ```shell
 python3 examples/data_preprocess/gsm8k.py --local_dir ~/data/gsm8k
-
-python3 -c "import transformers; transformers.pipeline('text-generation', model='Qwen/Qwen2.5-0.5B-Instruct')"
 ```
 
 - Create env.txt
@@ -46,21 +53,27 @@ python3 -c "import transformers; transformers.pipeline('text-generation', model=
 ```shell
 cat <<EOF > ~/sif/env.txt
 PYTHONUNBUFFERED=1
+ROCR_VISIBLE_DEVICES=
 EOF
 
-exit  # exit from the container
+exit
+# exit from the singularity container. prompt should be back to normal
 ```
 
-## Run PPO training on ABCI 3.0
+## Run GRPO training on ABCI 3.0
 
 ```shell
 cd verl
-qsub -P group hpc_scripts/ppo_abci.sh
+qsub -P group hpc_scripts/grpo_qwen3_8b_abci.sh
+
+tail -qf logs/grpo_qwen3_8b_gsm8k-{jobid}.*
 ```
 
-## Run PPO training on Slurm
+## Run GRPO training on Slurm
 
 ```shell
 cd verl
-sbatch hpc_scripts/ppo_slurm.sh
+sbatch hpc_scripts/grpo_qwen3_8b_slurm.sh
+
+tail -qf logs/grpo_qwen3_8b_gsm8k-{jobid}.*
 ```
