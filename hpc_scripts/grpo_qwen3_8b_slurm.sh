@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=verl-ray-on-hpc
+#SBATCH --job-name=grpo_qwen3_8b_gsm8k
 #SBATCH --nodes=2
 #SBATCH --ntasks-per-node=1
 #SBATCH --mem=1200G
@@ -32,12 +32,11 @@ ulimit -v unlimited
 verl_workdir=${HOME}/verl
 train_files=${HOME}/data/gsm8k/train.parquet
 val_files=${HOME}/data/gsm8k/test.parquet
-apptainer_command=singularity
-apptainer_image_path=${HOME}/sif/verl-app-verl0.5-transformers4.55.4-vllm0.10.0-mcore0.13.0-te2.2.sif
-apptainer_env_file=${HOME}/sif/env.txt
+sif_file=${HOME}/sif/verl-app-verl0.5-transformers4.55.4-vllm0.10.0-mcore0.13.0-te2.2.sif
+env_file=${HOME}/sif/env.txt
 model_name=Qwen/Qwen3-8B
-project_name=verl_grpo_example_gsm8k
-experiment_name=qwen3_8b_function_rm
+project_name=verl_grpo
+experiment_name=qwen3_8b_gsm8k
 # replace these information with your own
 
 # define HPC_* instead of SLURM_*
@@ -61,16 +60,16 @@ printenv
 
 echo "Starting HEAD at $head_node"
 srun --overlap --nodes=1 --ntasks=1 -w "$head_node" \
-    $apptainer_command exec --env-file "$apptainer_env_file" --nv --bind "$verl_workdir" "$apptainer_image_path" \
-        ray start --head --node-ip-address="$head_node_ip" --port=$port \
-        --num-cpus "${HPC_CPUS_ON_NODE}" --num-gpus "${HPC_GPUS_ON_NODE}" --block &
+    singularity exec --env-file "$env_file" --nv --bind "$verl_workdir" "$sif_file" \
+        ray start --head --node-ip-address="$head_node_ip" --port="$port" \
+            --num-cpus "${HPC_CPUS_ON_NODE}" --num-gpus "${HPC_GPUS_ON_NODE}" --block &
 # optional, though may be useful in certain versions of Ray < 1.0.
 sleep 20
 
 for worker_node in $worker_nodes; do
     echo "Starting WORKER at $worker_node"
     srun --overlap --nodes=1 --ntasks=1 -w "$worker_node" \
-        $apptainer_command exec --env-file "$apptainer_env_file" --nv --bind "$verl_workdir" "$apptainer_image_path" \
+        singularity exec --env-file "$env_file" --nv --bind "$verl_workdir" "$sif_file" \
             ray start --address "$ip_head" --num-cpus "${HPC_CPUS_ON_NODE}" --num-gpus "${HPC_GPUS_ON_NODE}" --block &
     sleep 10
 done
@@ -79,11 +78,11 @@ sleep 10
 
 echo "Confirming status at $head_node"
 srun --overlap --nodes=1 --ntasks=1 -w "$head_node" \
-    $apptainer_command exec --env-file "$apptainer_env_file" --nv --bind "$verl_workdir" "$apptainer_image_path" \
+    singularity exec --env-file "$env_file" --nv --bind "$verl_workdir" "$sif_file" \
         ray status --address "$ip_head"
 
 srun --overlap --nodes=1 --ntasks=1 -w "$head_node" \
-    $apptainer_command exec --env-file "$apptainer_env_file" --nv --bind "$verl_workdir" "$apptainer_image_path" \
+    singularity exec --env-file "$env_file" --nv --bind "$verl_workdir" "$sif_file" \
     python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     data.train_files="$train_files" \
